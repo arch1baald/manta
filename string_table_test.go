@@ -9,9 +9,6 @@ import (
 )
 
 func TestParseStringTableCreate(t *testing.T) {
-	// XXX: string tables changed, skipping for now.
-	t.Skip()
-
 	assert := assert.New(t)
 
 	scenarios := []struct {
