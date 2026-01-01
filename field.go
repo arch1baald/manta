@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/dotabuff/manta/dota"
+	"github.com/arch1baald/manta/dota"
 )
 
 const (
