@@ -9,7 +9,7 @@ Usage:
 
 What it does:
   - Rewrites import/module paths between:
-      github.com/dotabuff/manta   <->   github.com/arch1baald/manta
+      github.com/arch1baald/manta   <->   github.com/arch1baald/manta
   - Updates go.mod "module ..." line accordingly.
   - Applies to tracked text files (git ls-files), skipping binaries.
 
@@ -80,6 +80,11 @@ fi
 
 # Rewrite all tracked text files that contain FROM.
 while IFS= read -r -d '' f; do
+  # Never rewrite this script itself (otherwise it corrupts DOTABUFF/ARCH values).
+  if [[ "$f" == "switch-import-path.sh" ]]; then
+    continue
+  fi
+
   # Skip obvious non-text/binary files.
   if ! grep -Iq . "$f" 2>/dev/null; then
     continue
