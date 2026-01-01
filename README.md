@@ -69,6 +69,20 @@ brew install gnu-sed
 go install github.com/golang/protobuf/protoc-gen-go@v1.5.2
 ```
 
+## Sync with upstream (dotabuff/manta)
+
+This repository is a fork. If you want to pull/rebase changes from upstream `dotabuff/manta` without constantly fighting conflicts due to differences in import path/module path, you can temporarily switch paths via the script:
+
+```sh
+# before syncing with upstream
+./switch-import-path.sh dotabuff
+
+# do your git fetch/pull/rebase here
+
+# switch back to this fork's module/import paths
+./switch-import-path.sh arch1baald
+```
+
 ## License
 
 Manta is distributed under the [MIT license](https://github.com/arch1baald/manta/blob/master/LICENSE).
