@@ -221,27 +221,85 @@ func (p *Parser) onCMsgSource1LegacyGameEvent(m *dota.CMsgSource1LegacyGameEvent
 		return _errorf("unknown event id: %d", m.GetEventid())
 	}
 
-	// Get the handlers for the event name. Return early if none.
-	handlers := p.gameEventHandlers[name]
-	if handlers == nil {
-		return nil
-	}
-
 	// Get the type for the event.
 	t, ok := p.gameEventTypes[name]
 	if !ok {
 		return _errorf("unknown event type: %s", name)
 	}
 
-	// Create a GameEvent, offer to all handlers.
+	// Create a GameEvent
 	e := &GameEvent{t: t, m: m}
-	for _, h := range handlers {
-		if err := h(e); err != nil {
-			return err
+
+	// Call any- handlers first (if registered)
+	if anyHandlers, ok := p.gameEventHandlers["__any__"]; ok {
+		for _, h := range anyHandlers {
+			if err := h(e); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Get the handlers for the event name. Call them if any.
+	if handlers := p.gameEventHandlers[name]; handlers != nil {
+		for _, h := range handlers {
+			if err := h(e); err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
+}
+
+// OnAnyGameEvent registers a GameEventHandler that will be called for any game event,
+// regardless of whether specific handlers are registered for that event name.
+func (p *Parser) OnAnyGameEvent(fn GameEventHandler) {
+	// Store in a special key to indicate it's a universal handler
+	if p.gameEventHandlers == nil {
+		p.gameEventHandlers = make(map[string][]GameEventHandler)
+	}
+	// Use a special key that won't conflict with real event names
+	p.gameEventHandlers["__any__"] = append(p.gameEventHandlers["__any__"], fn)
+}
+
+// GetAllFields returns all fields of the game event as a map
+func (e *GameEvent) GetAllFields() map[string]interface{} {
+	fields := make(map[string]interface{})
+	keys := e.m.GetKeys()
+	for name, field := range e.t.fields {
+		if field.i < len(keys) {
+			key := keys[field.i]
+			var value interface{}
+			switch key.GetType() {
+			case gameEventTypeString:
+				value = key.GetValString()
+			case gameEventTypeFloat:
+				value = key.GetValFloat()
+			case gameEventTypeLong:
+				value = key.GetValLong()
+			case gameEventTypeShort:
+				value = key.GetValShort()
+			case gameEventTypeByte:
+				value = key.GetValByte()
+			case gameEventTypeBool:
+				value = key.GetValBool()
+			case gameEventTypeUint64:
+				value = key.GetValUint64()
+			}
+			fields[name] = value
+		}
+	}
+	return fields
+}
+
+// GetEventName returns the name of the game event
+func (e *GameEvent) GetEventName() string {
+	return e.t.name
+}
+
+// GetEventID returns the ID of the game event
+func (e *GameEvent) GetEventID() int32 {
+	return e.t.eventId
 }
 
 // OnGameEvent registers an GameEventHandler that will be called when a
