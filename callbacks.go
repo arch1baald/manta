@@ -1,6 +1,8 @@
 package manta
 
 import (
+	"reflect"
+
 	"github.com/arch1baald/manta/dota"
 	"github.com/golang/protobuf/proto"
 )
@@ -280,6 +282,10 @@ type Callbacks struct {
 	onCDOTAUserMsg_TimerAlert                              []func(*dota.CDOTAUserMsg_TimerAlert) error
 	onCDOTAUserMsg_MadstoneAlert                           []func(*dota.CDOTAUserMsg_MadstoneAlert) error
 
+	// Universal hooks for any demo/packet messages
+	onAnyDemoMessage   []func(typeId int32, msg proto.Message, typeName string) error
+	onAnyPacketMessage []func(typeId int32, msg proto.Message, typeName string) error
+
 	pb *proto.Buffer
 }
 
@@ -287,6 +293,18 @@ func newCallbacks() *Callbacks {
 	return &Callbacks{
 		pb: &proto.Buffer{},
 	}
+}
+
+// OnAnyDemoMessage registers a callback that will be called for any demo message type.
+// The callback receives typeId, decoded proto.Message (or nil if unmarshal failed), and type name.
+func (c *Callbacks) OnAnyDemoMessage(fn func(typeId int32, msg proto.Message, typeName string) error) {
+	c.onAnyDemoMessage = append(c.onAnyDemoMessage, fn)
+}
+
+// OnAnyPacketMessage registers a callback that will be called for any packet message type.
+// The callback receives typeId, decoded proto.Message (or nil if unmarshal failed), and type name.
+func (c *Callbacks) OnAnyPacketMessage(fn func(typeId int32, msg proto.Message, typeName string) error) {
+	c.onAnyPacketMessage = append(c.onAnyPacketMessage, fn)
 }
 
 // OnCDemoStop registers a callback EDemoCommands_DEM_Stop
@@ -1649,16 +1667,44 @@ func (c *Callbacks) OnCDOTAUserMsg_MadstoneAlert(fn func(*dota.CDOTAUserMsg_Mads
 	c.onCDOTAUserMsg_MadstoneAlert = append(c.onCDOTAUserMsg_MadstoneAlert, fn)
 }
 
+// getProtoTypeName extracts the type name from a proto.Message using reflection
+func getProtoTypeName(msg proto.Message) string {
+	if msg == nil {
+		return ""
+	}
+	t := reflect.TypeOf(msg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name()
+}
+
 func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
+	// Helper to call any- handlers
+	callAnyHandlers := func(msg proto.Message) error {
+		typeName := getProtoTypeName(msg)
+		for _, fn := range c.onAnyDemoMessage {
+			if err := fn(t, msg, typeName); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	switch t {
 	case 0: // dota.EDemoCommands_DEM_Stop
-		if c.onCDemoStop == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoStop != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoStop{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1671,13 +1717,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 1: // dota.EDemoCommands_DEM_FileHeader
-		if c.onCDemoFileHeader == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoFileHeader != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoFileHeader{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1690,13 +1741,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 2: // dota.EDemoCommands_DEM_FileInfo
-		if c.onCDemoFileInfo == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoFileInfo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoFileInfo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1709,13 +1765,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 3: // dota.EDemoCommands_DEM_SyncTick
-		if c.onCDemoSyncTick == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoSyncTick != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoSyncTick{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1728,13 +1789,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 4: // dota.EDemoCommands_DEM_SendTables
-		if c.onCDemoSendTables == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoSendTables != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoSendTables{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1747,13 +1813,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 5: // dota.EDemoCommands_DEM_ClassInfo
-		if c.onCDemoClassInfo == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoClassInfo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoClassInfo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1766,13 +1837,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 6: // dota.EDemoCommands_DEM_StringTables
-		if c.onCDemoStringTables == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoStringTables != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoStringTables{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1785,13 +1861,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 7: // dota.EDemoCommands_DEM_Packet
-		if c.onCDemoPacket == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoPacket != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoPacket{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1804,13 +1885,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 8: // dota.EDemoCommands_DEM_SignonPacket
-		if c.onCDemoSignonPacket == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoSignonPacket != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoPacket{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1823,13 +1909,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 9: // dota.EDemoCommands_DEM_ConsoleCmd
-		if c.onCDemoConsoleCmd == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoConsoleCmd != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoConsoleCmd{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1842,13 +1933,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 10: // dota.EDemoCommands_DEM_CustomData
-		if c.onCDemoCustomData == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoCustomData != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoCustomData{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1861,13 +1957,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 11: // dota.EDemoCommands_DEM_CustomDataCallbacks
-		if c.onCDemoCustomDataCallbacks == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoCustomDataCallbacks != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoCustomDataCallbacks{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1880,13 +1981,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 12: // dota.EDemoCommands_DEM_UserCmd
-		if c.onCDemoUserCmd == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoUserCmd != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoUserCmd{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1899,13 +2005,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 13: // dota.EDemoCommands_DEM_FullPacket
-		if c.onCDemoFullPacket == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoFullPacket != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoFullPacket{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1918,13 +2029,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 14: // dota.EDemoCommands_DEM_SaveGame
-		if c.onCDemoSaveGame == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoSaveGame != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoSaveGame{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1937,13 +2053,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 15: // dota.EDemoCommands_DEM_SpawnGroups
-		if c.onCDemoSpawnGroups == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoSpawnGroups != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoSpawnGroups{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1956,13 +2077,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 16: // dota.EDemoCommands_DEM_AnimationData
-		if c.onCDemoAnimationData == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoAnimationData != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoAnimationData{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1975,13 +2101,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 17: // dota.EDemoCommands_DEM_AnimationHeader
-		if c.onCDemoAnimationHeader == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoAnimationHeader != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoAnimationHeader{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -1994,13 +2125,18 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 		return nil
 
 	case 18: // dota.EDemoCommands_DEM_Recovery
-		if c.onCDemoRecovery == nil {
+		shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.onCDemoRecovery != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDemoRecovery{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2014,6 +2150,15 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 
 	}
 
+	// Unknown type - call any- handlers with nil message if they exist
+	if len(c.onAnyDemoMessage) > 0 {
+		for _, fn := range c.onAnyDemoMessage {
+			if err := fn(t, nil, ""); err != nil {
+				return err
+			}
+		}
+	}
+
 	if v(1) {
 		_debugf("warning: no demo type %d found", t)
 	}
@@ -2022,15 +2167,31 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 }
 
 func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
+	// Helper to call any- handlers
+	callAnyHandlers := func(msg proto.Message) error {
+		typeName := getProtoTypeName(msg)
+		for _, fn := range c.onAnyPacketMessage {
+			if err := fn(t, msg, typeName); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	switch t {
 	case 0: // dota.NET_Messages_net_NOP
-		if c.onCNETMsg_NOP == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_NOP != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_NOP{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2043,13 +2204,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 3: // dota.NET_Messages_net_SplitScreenUser
-		if c.onCNETMsg_SplitScreenUser == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SplitScreenUser != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SplitScreenUser{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2062,13 +2228,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 4: // dota.NET_Messages_net_Tick
-		if c.onCNETMsg_Tick == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_Tick != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_Tick{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2081,13 +2252,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 5: // dota.NET_Messages_net_StringCmd
-		if c.onCNETMsg_StringCmd == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_StringCmd != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_StringCmd{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2100,13 +2276,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 6: // dota.NET_Messages_net_SetConVar
-		if c.onCNETMsg_SetConVar == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SetConVar != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SetConVar{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2119,13 +2300,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 7: // dota.NET_Messages_net_SignonState
-		if c.onCNETMsg_SignonState == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SignonState != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SignonState{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2138,13 +2324,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 8: // dota.NET_Messages_net_SpawnGroup_Load
-		if c.onCNETMsg_SpawnGroup_Load == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SpawnGroup_Load != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SpawnGroup_Load{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2157,13 +2348,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 9: // dota.NET_Messages_net_SpawnGroup_ManifestUpdate
-		if c.onCNETMsg_SpawnGroup_ManifestUpdate == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SpawnGroup_ManifestUpdate != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SpawnGroup_ManifestUpdate{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2176,13 +2372,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 11: // dota.NET_Messages_net_SpawnGroup_SetCreationTick
-		if c.onCNETMsg_SpawnGroup_SetCreationTick == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SpawnGroup_SetCreationTick != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SpawnGroup_SetCreationTick{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2195,13 +2396,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 12: // dota.NET_Messages_net_SpawnGroup_Unload
-		if c.onCNETMsg_SpawnGroup_Unload == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SpawnGroup_Unload != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SpawnGroup_Unload{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2214,13 +2420,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 13: // dota.NET_Messages_net_SpawnGroup_LoadCompleted
-		if c.onCNETMsg_SpawnGroup_LoadCompleted == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_SpawnGroup_LoadCompleted != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_SpawnGroup_LoadCompleted{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2233,13 +2444,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 15: // dota.NET_Messages_net_DebugOverlay
-		if c.onCNETMsg_DebugOverlay == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCNETMsg_DebugOverlay != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CNETMsg_DebugOverlay{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2252,13 +2468,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 40: // dota.SVC_Messages_svc_ServerInfo
-		if c.onCSVCMsg_ServerInfo == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_ServerInfo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_ServerInfo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2271,13 +2492,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 41: // dota.SVC_Messages_svc_FlattenedSerializer
-		if c.onCSVCMsg_FlattenedSerializer == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_FlattenedSerializer != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_FlattenedSerializer{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2290,13 +2516,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 42: // dota.SVC_Messages_svc_ClassInfo
-		if c.onCSVCMsg_ClassInfo == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_ClassInfo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_ClassInfo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2309,13 +2540,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 43: // dota.SVC_Messages_svc_SetPause
-		if c.onCSVCMsg_SetPause == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_SetPause != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_SetPause{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2328,13 +2564,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 44: // dota.SVC_Messages_svc_CreateStringTable
-		if c.onCSVCMsg_CreateStringTable == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_CreateStringTable != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_CreateStringTable{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2347,13 +2588,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 45: // dota.SVC_Messages_svc_UpdateStringTable
-		if c.onCSVCMsg_UpdateStringTable == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_UpdateStringTable != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_UpdateStringTable{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2366,13 +2612,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 46: // dota.SVC_Messages_svc_VoiceInit
-		if c.onCSVCMsg_VoiceInit == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_VoiceInit != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_VoiceInit{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2385,13 +2636,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 47: // dota.SVC_Messages_svc_VoiceData
-		if c.onCSVCMsg_VoiceData == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_VoiceData != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_VoiceData{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2404,13 +2660,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 48: // dota.SVC_Messages_svc_Print
-		if c.onCSVCMsg_Print == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_Print != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_Print{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2423,13 +2684,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 49: // dota.SVC_Messages_svc_Sounds
-		if c.onCSVCMsg_Sounds == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_Sounds != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_Sounds{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2442,13 +2708,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 50: // dota.SVC_Messages_svc_SetView
-		if c.onCSVCMsg_SetView == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_SetView != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_SetView{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2461,13 +2732,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 51: // dota.SVC_Messages_svc_ClearAllStringTables
-		if c.onCSVCMsg_ClearAllStringTables == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_ClearAllStringTables != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_ClearAllStringTables{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2480,13 +2756,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 52: // dota.SVC_Messages_svc_CmdKeyValues
-		if c.onCSVCMsg_CmdKeyValues == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_CmdKeyValues != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_CmdKeyValues{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2499,13 +2780,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 53: // dota.SVC_Messages_svc_BSPDecal
-		if c.onCSVCMsg_BSPDecal == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_BSPDecal != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_BSPDecal{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2518,13 +2804,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 54: // dota.SVC_Messages_svc_SplitScreen
-		if c.onCSVCMsg_SplitScreen == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_SplitScreen != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_SplitScreen{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2537,13 +2828,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 55: // dota.SVC_Messages_svc_PacketEntities
-		if c.onCSVCMsg_PacketEntities == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_PacketEntities != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_PacketEntities{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2556,13 +2852,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 56: // dota.SVC_Messages_svc_Prefetch
-		if c.onCSVCMsg_Prefetch == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_Prefetch != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_Prefetch{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2575,13 +2876,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 57: // dota.SVC_Messages_svc_Menu
-		if c.onCSVCMsg_Menu == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_Menu != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_Menu{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2594,13 +2900,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 58: // dota.SVC_Messages_svc_GetCvarValue
-		if c.onCSVCMsg_GetCvarValue == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_GetCvarValue != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_GetCvarValue{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2613,13 +2924,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 59: // dota.SVC_Messages_svc_StopSound
-		if c.onCSVCMsg_StopSound == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_StopSound != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_StopSound{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2632,13 +2948,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 60: // dota.SVC_Messages_svc_PeerList
-		if c.onCSVCMsg_PeerList == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_PeerList != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_PeerList{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2651,13 +2972,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 61: // dota.SVC_Messages_svc_PacketReliable
-		if c.onCSVCMsg_PacketReliable == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_PacketReliable != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_PacketReliable{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2670,13 +2996,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 62: // dota.SVC_Messages_svc_HLTVStatus
-		if c.onCSVCMsg_HLTVStatus == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_HLTVStatus != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_HLTVStatus{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2689,13 +3020,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 63: // dota.SVC_Messages_svc_ServerSteamID
-		if c.onCSVCMsg_ServerSteamID == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_ServerSteamID != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_ServerSteamID{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2708,13 +3044,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 70: // dota.SVC_Messages_svc_FullFrameSplit
-		if c.onCSVCMsg_FullFrameSplit == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_FullFrameSplit != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_FullFrameSplit{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2727,13 +3068,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 71: // dota.SVC_Messages_svc_RconServerDetails
-		if c.onCSVCMsg_RconServerDetails == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_RconServerDetails != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_RconServerDetails{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2746,13 +3092,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 72: // dota.SVC_Messages_svc_UserMessage
-		if c.onCSVCMsg_UserMessage == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_UserMessage != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_UserMessage{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2765,13 +3116,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 74: // dota.SVC_Messages_svc_Broadcast_Command
-		if c.onCSVCMsg_Broadcast_Command == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_Broadcast_Command != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_Broadcast_Command{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2784,13 +3140,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 75: // dota.SVC_Messages_svc_HltvFixupOperatorStatus
-		if c.onCSVCMsg_HltvFixupOperatorStatus == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCSVCMsg_HltvFixupOperatorStatus != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CSVCMsg_HltvFixupOperatorStatus{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2803,13 +3164,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 101: // dota.EBaseUserMessages_UM_AchievementEvent
-		if c.onCUserMessageAchievementEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageAchievementEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageAchievementEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2822,13 +3188,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 102: // dota.EBaseUserMessages_UM_CloseCaption
-		if c.onCUserMessageCloseCaption == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageCloseCaption != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageCloseCaption{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2841,13 +3212,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 103: // dota.EBaseUserMessages_UM_CloseCaptionDirect
-		if c.onCUserMessageCloseCaptionDirect == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageCloseCaptionDirect != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageCloseCaptionDirect{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2860,13 +3236,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 104: // dota.EBaseUserMessages_UM_CurrentTimescale
-		if c.onCUserMessageCurrentTimescale == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageCurrentTimescale != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageCurrentTimescale{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2879,13 +3260,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 105: // dota.EBaseUserMessages_UM_DesiredTimescale
-		if c.onCUserMessageDesiredTimescale == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageDesiredTimescale != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageDesiredTimescale{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2898,13 +3284,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 106: // dota.EBaseUserMessages_UM_Fade
-		if c.onCUserMessageFade == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageFade != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageFade{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2917,13 +3308,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 107: // dota.EBaseUserMessages_UM_GameTitle
-		if c.onCUserMessageGameTitle == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageGameTitle != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageGameTitle{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2936,13 +3332,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 110: // dota.EBaseUserMessages_UM_HudMsg
-		if c.onCUserMessageHudMsg == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageHudMsg != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageHudMsg{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2955,13 +3356,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 111: // dota.EBaseUserMessages_UM_HudText
-		if c.onCUserMessageHudText == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageHudText != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageHudText{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2974,13 +3380,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 113: // dota.EBaseUserMessages_UM_ColoredText
-		if c.onCUserMessageColoredText == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageColoredText != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageColoredText{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -2993,13 +3404,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 114: // dota.EBaseUserMessages_UM_RequestState
-		if c.onCUserMessageRequestState == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageRequestState != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageRequestState{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3012,13 +3428,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 115: // dota.EBaseUserMessages_UM_ResetHUD
-		if c.onCUserMessageResetHUD == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageResetHUD != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageResetHUD{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3031,13 +3452,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 116: // dota.EBaseUserMessages_UM_Rumble
-		if c.onCUserMessageRumble == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageRumble != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageRumble{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3050,13 +3476,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 117: // dota.EBaseUserMessages_UM_SayText
-		if c.onCUserMessageSayText == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageSayText != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageSayText{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3069,13 +3500,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 118: // dota.EBaseUserMessages_UM_SayText2
-		if c.onCUserMessageSayText2 == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageSayText2 != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageSayText2{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3088,13 +3524,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 119: // dota.EBaseUserMessages_UM_SayTextChannel
-		if c.onCUserMessageSayTextChannel == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageSayTextChannel != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageSayTextChannel{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3107,13 +3548,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 120: // dota.EBaseUserMessages_UM_Shake
-		if c.onCUserMessageShake == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageShake != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageShake{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3126,13 +3572,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 121: // dota.EBaseUserMessages_UM_ShakeDir
-		if c.onCUserMessageShakeDir == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageShakeDir != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageShakeDir{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3145,13 +3596,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 122: // dota.EBaseUserMessages_UM_WaterShake
-		if c.onCUserMessageWaterShake == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageWaterShake != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageWaterShake{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3164,13 +3620,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 124: // dota.EBaseUserMessages_UM_TextMsg
-		if c.onCUserMessageTextMsg == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageTextMsg != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageTextMsg{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3183,13 +3644,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 125: // dota.EBaseUserMessages_UM_ScreenTilt
-		if c.onCUserMessageScreenTilt == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageScreenTilt != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageScreenTilt{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3202,13 +3668,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 128: // dota.EBaseUserMessages_UM_VoiceMask
-		if c.onCUserMessageVoiceMask == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageVoiceMask != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageVoiceMask{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3221,13 +3692,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 130: // dota.EBaseUserMessages_UM_SendAudio
-		if c.onCUserMessageSendAudio == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageSendAudio != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageSendAudio{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3240,13 +3716,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 131: // dota.EBaseUserMessages_UM_ItemPickup
-		if c.onCUserMessageItemPickup == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageItemPickup != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageItemPickup{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3259,13 +3740,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 132: // dota.EBaseUserMessages_UM_AmmoDenied
-		if c.onCUserMessageAmmoDenied == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageAmmoDenied != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageAmmoDenied{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3278,13 +3764,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 134: // dota.EBaseUserMessages_UM_ShowMenu
-		if c.onCUserMessageShowMenu == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageShowMenu != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageShowMenu{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3297,13 +3788,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 135: // dota.EBaseUserMessages_UM_CreditsMsg
-		if c.onCUserMessageCreditsMsg == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageCreditsMsg != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageCreditsMsg{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3316,13 +3812,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 136: // dota.EBaseEntityMessages_EM_PlayJingle
-		if c.onCEntityMessagePlayJingle == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCEntityMessagePlayJingle != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CEntityMessagePlayJingle{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3335,13 +3836,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 137: // dota.EBaseEntityMessages_EM_ScreenOverlay
-		if c.onCEntityMessageScreenOverlay == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCEntityMessageScreenOverlay != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CEntityMessageScreenOverlay{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3354,13 +3860,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 138: // dota.EBaseEntityMessages_EM_RemoveAllDecals
-		if c.onCEntityMessageRemoveAllDecals == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCEntityMessageRemoveAllDecals != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CEntityMessageRemoveAllDecals{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3373,13 +3884,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 139: // dota.EBaseEntityMessages_EM_PropagateForce
-		if c.onCEntityMessagePropagateForce == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCEntityMessagePropagateForce != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CEntityMessagePropagateForce{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3392,13 +3908,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 140: // dota.EBaseEntityMessages_EM_DoSpark
-		if c.onCEntityMessageDoSpark == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCEntityMessageDoSpark != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CEntityMessageDoSpark{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3411,13 +3932,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 141: // dota.EBaseEntityMessages_EM_FixAngle
-		if c.onCEntityMessageFixAngle == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCEntityMessageFixAngle != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CEntityMessageFixAngle{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3430,13 +3956,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 142: // dota.EBaseUserMessages_UM_CloseCaptionPlaceholder
-		if c.onCUserMessageCloseCaptionPlaceholder == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageCloseCaptionPlaceholder != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageCloseCaptionPlaceholder{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3449,13 +3980,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 143: // dota.EBaseUserMessages_UM_CameraTransition
-		if c.onCUserMessageCameraTransition == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageCameraTransition != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageCameraTransition{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3468,13 +4004,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 144: // dota.EBaseUserMessages_UM_AudioParameter
-		if c.onCUserMessageAudioParameter == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageAudioParameter != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageAudioParameter{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3487,13 +4028,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 150: // dota.EBaseUserMessages_UM_HapticsManagerPulse
-		if c.onCUserMessageHapticsManagerPulse == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageHapticsManagerPulse != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageHapticsManagerPulse{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3506,13 +4052,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 151: // dota.EBaseUserMessages_UM_HapticsManagerEffect
-		if c.onCUserMessageHapticsManagerEffect == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageHapticsManagerEffect != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageHapticsManagerEffect{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3525,13 +4076,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 153: // dota.EBaseUserMessages_UM_UpdateCssClasses
-		if c.onCUserMessageUpdateCssClasses == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageUpdateCssClasses != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageUpdateCssClasses{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3544,13 +4100,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 154: // dota.EBaseUserMessages_UM_ServerFrameTime
-		if c.onCUserMessageServerFrameTime == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageServerFrameTime != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageServerFrameTime{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3563,13 +4124,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 155: // dota.EBaseUserMessages_UM_LagCompensationError
-		if c.onCUserMessageLagCompensationError == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageLagCompensationError != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageLagCompensationError{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3582,13 +4148,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 156: // dota.EBaseUserMessages_UM_RequestDllStatus
-		if c.onCUserMessageRequestDllStatus == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageRequestDllStatus != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageRequestDllStatus{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3601,13 +4172,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 157: // dota.EBaseUserMessages_UM_RequestUtilAction
-		if c.onCUserMessageRequestUtilAction == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageRequestUtilAction != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageRequestUtilAction{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3620,13 +4196,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 160: // dota.EBaseUserMessages_UM_RequestInventory
-		if c.onCUserMessageRequestInventory == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageRequestInventory != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageRequestInventory{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3639,13 +4220,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 162: // dota.EBaseUserMessages_UM_RequestDiagnostic
-		if c.onCUserMessageRequestDiagnostic == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCUserMessageRequestDiagnostic != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CUserMessageRequestDiagnostic{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3658,13 +4244,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 200: // dota.EBaseGameEvents_GE_VDebugGameSessionIDEvent
-		if c.onCMsgVDebugGameSessionIDEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgVDebugGameSessionIDEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgVDebugGameSessionIDEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3677,13 +4268,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 201: // dota.EBaseGameEvents_GE_PlaceDecalEvent
-		if c.onCMsgPlaceDecalEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgPlaceDecalEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgPlaceDecalEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3696,13 +4292,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 202: // dota.EBaseGameEvents_GE_ClearWorldDecalsEvent
-		if c.onCMsgClearWorldDecalsEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgClearWorldDecalsEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgClearWorldDecalsEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3715,13 +4316,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 203: // dota.EBaseGameEvents_GE_ClearEntityDecalsEvent
-		if c.onCMsgClearEntityDecalsEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgClearEntityDecalsEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgClearEntityDecalsEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3734,13 +4340,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 204: // dota.EBaseGameEvents_GE_ClearDecalsForSkeletonInstanceEvent
-		if c.onCMsgClearDecalsForSkeletonInstanceEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgClearDecalsForSkeletonInstanceEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgClearDecalsForSkeletonInstanceEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3753,13 +4364,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 205: // dota.EBaseGameEvents_GE_Source1LegacyGameEventList
-		if c.onCMsgSource1LegacyGameEventList == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSource1LegacyGameEventList != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSource1LegacyGameEventList{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3772,13 +4388,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 206: // dota.EBaseGameEvents_GE_Source1LegacyListenEvents
-		if c.onCMsgSource1LegacyListenEvents == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSource1LegacyListenEvents != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSource1LegacyListenEvents{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3791,13 +4412,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 207: // dota.EBaseGameEvents_GE_Source1LegacyGameEvent
-		if c.onCMsgSource1LegacyGameEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSource1LegacyGameEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSource1LegacyGameEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3810,13 +4436,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 208: // dota.EBaseGameEvents_GE_SosStartSoundEvent
-		if c.onCMsgSosStartSoundEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSosStartSoundEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSosStartSoundEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3829,13 +4460,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 209: // dota.EBaseGameEvents_GE_SosStopSoundEvent
-		if c.onCMsgSosStopSoundEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSosStopSoundEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSosStopSoundEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3848,13 +4484,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 210: // dota.EBaseGameEvents_GE_SosSetSoundEventParams
-		if c.onCMsgSosSetSoundEventParams == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSosSetSoundEventParams != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSosSetSoundEventParams{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3867,13 +4508,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 211: // dota.EBaseGameEvents_GE_SosSetLibraryStackFields
-		if c.onCMsgSosSetLibraryStackFields == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSosSetLibraryStackFields != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSosSetLibraryStackFields{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3886,13 +4532,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 212: // dota.EBaseGameEvents_GE_SosStopSoundEventHash
-		if c.onCMsgSosStopSoundEventHash == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgSosStopSoundEventHash != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgSosStopSoundEventHash{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3905,13 +4556,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 465: // dota.EDotaUserMessages_DOTA_UM_AIDebugLine
-		if c.onCDOTAUserMsg_AIDebugLine == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_AIDebugLine != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_AIDebugLine{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3924,13 +4580,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 466: // dota.EDotaUserMessages_DOTA_UM_ChatEvent
-		if c.onCDOTAUserMsg_ChatEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ChatEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ChatEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3943,13 +4604,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 467: // dota.EDotaUserMessages_DOTA_UM_CombatHeroPositions
-		if c.onCDOTAUserMsg_CombatHeroPositions == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CombatHeroPositions != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CombatHeroPositions{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3962,13 +4628,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 470: // dota.EDotaUserMessages_DOTA_UM_CombatLogBulkData
-		if c.onCDOTAUserMsg_CombatLogBulkData == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CombatLogBulkData != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CombatLogBulkData{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -3981,13 +4652,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 471: // dota.EDotaUserMessages_DOTA_UM_CreateLinearProjectile
-		if c.onCDOTAUserMsg_CreateLinearProjectile == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CreateLinearProjectile != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CreateLinearProjectile{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4000,13 +4676,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 472: // dota.EDotaUserMessages_DOTA_UM_DestroyLinearProjectile
-		if c.onCDOTAUserMsg_DestroyLinearProjectile == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DestroyLinearProjectile != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DestroyLinearProjectile{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4019,13 +4700,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 473: // dota.EDotaUserMessages_DOTA_UM_DodgeTrackingProjectiles
-		if c.onCDOTAUserMsg_DodgeTrackingProjectiles == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DodgeTrackingProjectiles != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DodgeTrackingProjectiles{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4038,13 +4724,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 474: // dota.EDotaUserMessages_DOTA_UM_GlobalLightColor
-		if c.onCDOTAUserMsg_GlobalLightColor == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_GlobalLightColor != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_GlobalLightColor{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4057,13 +4748,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 475: // dota.EDotaUserMessages_DOTA_UM_GlobalLightDirection
-		if c.onCDOTAUserMsg_GlobalLightDirection == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_GlobalLightDirection != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_GlobalLightDirection{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4076,13 +4772,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 476: // dota.EDotaUserMessages_DOTA_UM_InvalidCommand
-		if c.onCDOTAUserMsg_InvalidCommand == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_InvalidCommand != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_InvalidCommand{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4095,13 +4796,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 477: // dota.EDotaUserMessages_DOTA_UM_LocationPing
-		if c.onCDOTAUserMsg_LocationPing == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_LocationPing != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_LocationPing{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4114,13 +4820,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 478: // dota.EDotaUserMessages_DOTA_UM_MapLine
-		if c.onCDOTAUserMsg_MapLine == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MapLine != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MapLine{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4133,13 +4844,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 479: // dota.EDotaUserMessages_DOTA_UM_MiniKillCamInfo
-		if c.onCDOTAUserMsg_MiniKillCamInfo == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MiniKillCamInfo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MiniKillCamInfo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4152,13 +4868,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 480: // dota.EDotaUserMessages_DOTA_UM_MinimapDebugPoint
-		if c.onCDOTAUserMsg_MinimapDebugPoint == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MinimapDebugPoint != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MinimapDebugPoint{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4171,13 +4892,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 481: // dota.EDotaUserMessages_DOTA_UM_MinimapEvent
-		if c.onCDOTAUserMsg_MinimapEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MinimapEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MinimapEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4190,13 +4916,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 482: // dota.EDotaUserMessages_DOTA_UM_NevermoreRequiem
-		if c.onCDOTAUserMsg_NevermoreRequiem == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_NevermoreRequiem != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_NevermoreRequiem{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4209,13 +4940,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 483: // dota.EDotaUserMessages_DOTA_UM_OverheadEvent
-		if c.onCDOTAUserMsg_OverheadEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_OverheadEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_OverheadEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4228,13 +4964,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 484: // dota.EDotaUserMessages_DOTA_UM_SetNextAutobuyItem
-		if c.onCDOTAUserMsg_SetNextAutobuyItem == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SetNextAutobuyItem != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SetNextAutobuyItem{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4247,13 +4988,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 485: // dota.EDotaUserMessages_DOTA_UM_SharedCooldown
-		if c.onCDOTAUserMsg_SharedCooldown == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SharedCooldown != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SharedCooldown{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4266,13 +5012,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 486: // dota.EDotaUserMessages_DOTA_UM_SpectatorPlayerClick
-		if c.onCDOTAUserMsg_SpectatorPlayerClick == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SpectatorPlayerClick != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SpectatorPlayerClick{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4285,13 +5036,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 487: // dota.EDotaUserMessages_DOTA_UM_TutorialTipInfo
-		if c.onCDOTAUserMsg_TutorialTipInfo == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TutorialTipInfo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TutorialTipInfo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4304,13 +5060,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 488: // dota.EDotaUserMessages_DOTA_UM_UnitEvent
-		if c.onCDOTAUserMsg_UnitEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_UnitEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_UnitEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4323,13 +5084,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 490: // dota.EDotaUserMessages_DOTA_UM_BotChat
-		if c.onCDOTAUserMsg_BotChat == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_BotChat != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_BotChat{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4342,13 +5108,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 491: // dota.EDotaUserMessages_DOTA_UM_HudError
-		if c.onCDOTAUserMsg_HudError == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HudError != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HudError{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4361,13 +5132,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 492: // dota.EDotaUserMessages_DOTA_UM_ItemPurchased
-		if c.onCDOTAUserMsg_ItemPurchased == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ItemPurchased != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ItemPurchased{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4380,13 +5156,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 493: // dota.EDotaUserMessages_DOTA_UM_Ping
-		if c.onCDOTAUserMsg_Ping == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_Ping != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_Ping{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4399,13 +5180,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 494: // dota.EDotaUserMessages_DOTA_UM_ItemFound
-		if c.onCDOTAUserMsg_ItemFound == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ItemFound != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ItemFound{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4418,13 +5204,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 496: // dota.EDotaUserMessages_DOTA_UM_SwapVerify
-		if c.onCDOTAUserMsg_SwapVerify == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SwapVerify != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SwapVerify{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4437,13 +5228,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 497: // dota.EDotaUserMessages_DOTA_UM_WorldLine
-		if c.onCDOTAUserMsg_WorldLine == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_WorldLine != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_WorldLine{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4456,13 +5252,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 498: // dota.EDotaUserMessages_DOTA_UM_TournamentDrop
-		if c.onCMsgGCToClientTournamentItemDrop == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgGCToClientTournamentItemDrop != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgGCToClientTournamentItemDrop{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4475,13 +5276,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 499: // dota.EDotaUserMessages_DOTA_UM_ItemAlert
-		if c.onCDOTAUserMsg_ItemAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ItemAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ItemAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4494,13 +5300,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 500: // dota.EDotaUserMessages_DOTA_UM_HalloweenDrops
-		if c.onCDOTAUserMsg_HalloweenDrops == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HalloweenDrops != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HalloweenDrops{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4513,13 +5324,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 501: // dota.EDotaUserMessages_DOTA_UM_ChatWheel
-		if c.onCDOTAUserMsg_ChatWheel == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ChatWheel != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ChatWheel{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4532,13 +5348,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 502: // dota.EDotaUserMessages_DOTA_UM_ReceivedXmasGift
-		if c.onCDOTAUserMsg_ReceivedXmasGift == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ReceivedXmasGift != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ReceivedXmasGift{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4551,13 +5372,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 503: // dota.EDotaUserMessages_DOTA_UM_UpdateSharedContent
-		if c.onCDOTAUserMsg_UpdateSharedContent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_UpdateSharedContent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_UpdateSharedContent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4570,13 +5396,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 504: // dota.EDotaUserMessages_DOTA_UM_TutorialRequestExp
-		if c.onCDOTAUserMsg_TutorialRequestExp == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TutorialRequestExp != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TutorialRequestExp{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4589,13 +5420,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 505: // dota.EDotaUserMessages_DOTA_UM_TutorialPingMinimap
-		if c.onCDOTAUserMsg_TutorialPingMinimap == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TutorialPingMinimap != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TutorialPingMinimap{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4608,13 +5444,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 506: // dota.EDotaUserMessages_DOTA_UM_GamerulesStateChanged
-		if c.onCDOTAUserMsg_GamerulesStateChanged == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_GamerulesStateChanged != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_GamerulesStateChanged{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4627,13 +5468,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 507: // dota.EDotaUserMessages_DOTA_UM_ShowSurvey
-		if c.onCDOTAUserMsg_ShowSurvey == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ShowSurvey != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ShowSurvey{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4646,13 +5492,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 508: // dota.EDotaUserMessages_DOTA_UM_TutorialFade
-		if c.onCDOTAUserMsg_TutorialFade == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TutorialFade != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TutorialFade{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4665,13 +5516,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 509: // dota.EDotaUserMessages_DOTA_UM_AddQuestLogEntry
-		if c.onCDOTAUserMsg_AddQuestLogEntry == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_AddQuestLogEntry != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_AddQuestLogEntry{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4684,13 +5540,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 510: // dota.EDotaUserMessages_DOTA_UM_SendStatPopup
-		if c.onCDOTAUserMsg_SendStatPopup == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SendStatPopup != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SendStatPopup{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4703,13 +5564,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 511: // dota.EDotaUserMessages_DOTA_UM_TutorialFinish
-		if c.onCDOTAUserMsg_TutorialFinish == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TutorialFinish != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TutorialFinish{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4722,13 +5588,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 512: // dota.EDotaUserMessages_DOTA_UM_SendRoshanPopup
-		if c.onCDOTAUserMsg_SendRoshanPopup == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SendRoshanPopup != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SendRoshanPopup{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4741,13 +5612,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 513: // dota.EDotaUserMessages_DOTA_UM_SendGenericToolTip
-		if c.onCDOTAUserMsg_SendGenericToolTip == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SendGenericToolTip != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SendGenericToolTip{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4760,13 +5636,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 514: // dota.EDotaUserMessages_DOTA_UM_SendFinalGold
-		if c.onCDOTAUserMsg_SendFinalGold == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SendFinalGold != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SendFinalGold{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4779,13 +5660,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 515: // dota.EDotaUserMessages_DOTA_UM_CustomMsg
-		if c.onCDOTAUserMsg_CustomMsg == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CustomMsg != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CustomMsg{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4798,13 +5684,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 516: // dota.EDotaUserMessages_DOTA_UM_CoachHUDPing
-		if c.onCDOTAUserMsg_CoachHUDPing == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CoachHUDPing != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CoachHUDPing{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4817,13 +5708,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 517: // dota.EDotaUserMessages_DOTA_UM_ClientLoadGridNav
-		if c.onCDOTAUserMsg_ClientLoadGridNav == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ClientLoadGridNav != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ClientLoadGridNav{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4836,13 +5732,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 518: // dota.EDotaUserMessages_DOTA_UM_TE_Projectile
-		if c.onCDOTAUserMsg_TE_Projectile == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TE_Projectile != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TE_Projectile{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4855,13 +5756,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 519: // dota.EDotaUserMessages_DOTA_UM_TE_ProjectileLoc
-		if c.onCDOTAUserMsg_TE_ProjectileLoc == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TE_ProjectileLoc != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TE_ProjectileLoc{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4874,13 +5780,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 520: // dota.EDotaUserMessages_DOTA_UM_TE_DotaBloodImpact
-		if c.onCDOTAUserMsg_TE_DotaBloodImpact == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TE_DotaBloodImpact != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TE_DotaBloodImpact{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4893,13 +5804,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 521: // dota.EDotaUserMessages_DOTA_UM_TE_UnitAnimation
-		if c.onCDOTAUserMsg_TE_UnitAnimation == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TE_UnitAnimation != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TE_UnitAnimation{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4912,13 +5828,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 522: // dota.EDotaUserMessages_DOTA_UM_TE_UnitAnimationEnd
-		if c.onCDOTAUserMsg_TE_UnitAnimationEnd == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TE_UnitAnimationEnd != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TE_UnitAnimationEnd{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4931,13 +5852,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 523: // dota.EDotaUserMessages_DOTA_UM_AbilityPing
-		if c.onCDOTAUserMsg_AbilityPing == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_AbilityPing != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_AbilityPing{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4950,13 +5876,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 524: // dota.EDotaUserMessages_DOTA_UM_ShowGenericPopup
-		if c.onCDOTAUserMsg_ShowGenericPopup == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ShowGenericPopup != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ShowGenericPopup{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4969,13 +5900,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 525: // dota.EDotaUserMessages_DOTA_UM_VoteStart
-		if c.onCDOTAUserMsg_VoteStart == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_VoteStart != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_VoteStart{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -4988,13 +5924,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 526: // dota.EDotaUserMessages_DOTA_UM_VoteUpdate
-		if c.onCDOTAUserMsg_VoteUpdate == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_VoteUpdate != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_VoteUpdate{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5007,13 +5948,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 527: // dota.EDotaUserMessages_DOTA_UM_VoteEnd
-		if c.onCDOTAUserMsg_VoteEnd == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_VoteEnd != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_VoteEnd{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5026,13 +5972,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 528: // dota.EDotaUserMessages_DOTA_UM_BoosterState
-		if c.onCDOTAUserMsg_BoosterState == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_BoosterState != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_BoosterState{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5045,13 +5996,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 529: // dota.EDotaUserMessages_DOTA_UM_WillPurchaseAlert
-		if c.onCDOTAUserMsg_WillPurchaseAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_WillPurchaseAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_WillPurchaseAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5064,13 +6020,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 530: // dota.EDotaUserMessages_DOTA_UM_TutorialMinimapPosition
-		if c.onCDOTAUserMsg_TutorialMinimapPosition == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TutorialMinimapPosition != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TutorialMinimapPosition{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5083,13 +6044,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 532: // dota.EDotaUserMessages_DOTA_UM_AbilitySteal
-		if c.onCDOTAUserMsg_AbilitySteal == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_AbilitySteal != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_AbilitySteal{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5102,13 +6068,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 533: // dota.EDotaUserMessages_DOTA_UM_CourierKilledAlert
-		if c.onCDOTAUserMsg_CourierKilledAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CourierKilledAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CourierKilledAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5121,13 +6092,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 534: // dota.EDotaUserMessages_DOTA_UM_EnemyItemAlert
-		if c.onCDOTAUserMsg_EnemyItemAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_EnemyItemAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_EnemyItemAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5140,13 +6116,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 535: // dota.EDotaUserMessages_DOTA_UM_StatsMatchDetails
-		if c.onCDOTAUserMsg_StatsMatchDetails == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_StatsMatchDetails != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_StatsMatchDetails{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5159,13 +6140,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 536: // dota.EDotaUserMessages_DOTA_UM_MiniTaunt
-		if c.onCDOTAUserMsg_MiniTaunt == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MiniTaunt != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MiniTaunt{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5178,13 +6164,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 537: // dota.EDotaUserMessages_DOTA_UM_BuyBackStateAlert
-		if c.onCDOTAUserMsg_BuyBackStateAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_BuyBackStateAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_BuyBackStateAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5197,13 +6188,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 538: // dota.EDotaUserMessages_DOTA_UM_SpeechBubble
-		if c.onCDOTAUserMsg_SpeechBubble == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SpeechBubble != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SpeechBubble{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5216,13 +6212,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 539: // dota.EDotaUserMessages_DOTA_UM_CustomHeaderMessage
-		if c.onCDOTAUserMsg_CustomHeaderMessage == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CustomHeaderMessage != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CustomHeaderMessage{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5235,13 +6236,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 540: // dota.EDotaUserMessages_DOTA_UM_QuickBuyAlert
-		if c.onCDOTAUserMsg_QuickBuyAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_QuickBuyAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_QuickBuyAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5254,13 +6260,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 541: // dota.EDotaUserMessages_DOTA_UM_StatsHeroDetails
-		if c.onCDOTAUserMsg_StatsHeroMinuteDetails == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_StatsHeroMinuteDetails != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_StatsHeroMinuteDetails{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5273,13 +6284,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 543: // dota.EDotaUserMessages_DOTA_UM_ModifierAlert
-		if c.onCDOTAUserMsg_ModifierAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ModifierAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ModifierAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5292,13 +6308,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 544: // dota.EDotaUserMessages_DOTA_UM_HPManaAlert
-		if c.onCDOTAUserMsg_HPManaAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HPManaAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HPManaAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5311,13 +6332,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 545: // dota.EDotaUserMessages_DOTA_UM_GlyphAlert
-		if c.onCDOTAUserMsg_GlyphAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_GlyphAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_GlyphAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5330,13 +6356,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 546: // dota.EDotaUserMessages_DOTA_UM_BeastChat
-		if c.onCDOTAUserMsg_BeastChat == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_BeastChat != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_BeastChat{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5349,13 +6380,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 547: // dota.EDotaUserMessages_DOTA_UM_SpectatorPlayerUnitOrders
-		if c.onCDOTAUserMsg_SpectatorPlayerUnitOrders == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SpectatorPlayerUnitOrders != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SpectatorPlayerUnitOrders{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5368,13 +6404,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 548: // dota.EDotaUserMessages_DOTA_UM_CustomHudElement_Create
-		if c.onCDOTAUserMsg_CustomHudElement_Create == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CustomHudElement_Create != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CustomHudElement_Create{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5387,13 +6428,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 549: // dota.EDotaUserMessages_DOTA_UM_CustomHudElement_Modify
-		if c.onCDOTAUserMsg_CustomHudElement_Modify == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CustomHudElement_Modify != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CustomHudElement_Modify{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5406,13 +6452,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 550: // dota.EDotaUserMessages_DOTA_UM_CustomHudElement_Destroy
-		if c.onCDOTAUserMsg_CustomHudElement_Destroy == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CustomHudElement_Destroy != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CustomHudElement_Destroy{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5425,13 +6476,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 551: // dota.EDotaUserMessages_DOTA_UM_CompendiumState
-		if c.onCDOTAUserMsg_CompendiumState == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_CompendiumState != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_CompendiumState{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5444,13 +6500,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 552: // dota.EDotaUserMessages_DOTA_UM_ProjectionAbility
-		if c.onCDOTAUserMsg_ProjectionAbility == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ProjectionAbility != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ProjectionAbility{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5463,13 +6524,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 553: // dota.EDotaUserMessages_DOTA_UM_ProjectionEvent
-		if c.onCDOTAUserMsg_ProjectionEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ProjectionEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ProjectionEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5482,13 +6548,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 554: // dota.EDotaUserMessages_DOTA_UM_CombatLogDataHLTV
-		if c.onCMsgDOTACombatLogEntry == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCMsgDOTACombatLogEntry != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CMsgDOTACombatLogEntry{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5501,13 +6572,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 555: // dota.EDotaUserMessages_DOTA_UM_XPAlert
-		if c.onCDOTAUserMsg_XPAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_XPAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_XPAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5520,13 +6596,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 556: // dota.EDotaUserMessages_DOTA_UM_UpdateQuestProgress
-		if c.onCDOTAUserMsg_UpdateQuestProgress == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_UpdateQuestProgress != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_UpdateQuestProgress{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5539,13 +6620,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 557: // dota.EDotaUserMessages_DOTA_UM_MatchMetadata
-		if c.onCDOTAMatchMetadataFile == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAMatchMetadataFile != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAMatchMetadataFile{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5558,13 +6644,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 559: // dota.EDotaUserMessages_DOTA_UM_QuestStatus
-		if c.onCDOTAUserMsg_QuestStatus == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_QuestStatus != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_QuestStatus{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5577,13 +6668,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 560: // dota.EDotaUserMessages_DOTA_UM_SuggestHeroPick
-		if c.onCDOTAUserMsg_SuggestHeroPick == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SuggestHeroPick != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SuggestHeroPick{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5596,13 +6692,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 561: // dota.EDotaUserMessages_DOTA_UM_SuggestHeroRole
-		if c.onCDOTAUserMsg_SuggestHeroRole == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SuggestHeroRole != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SuggestHeroRole{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5615,13 +6716,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 562: // dota.EDotaUserMessages_DOTA_UM_KillcamDamageTaken
-		if c.onCDOTAUserMsg_KillcamDamageTaken == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_KillcamDamageTaken != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_KillcamDamageTaken{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5634,13 +6740,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 563: // dota.EDotaUserMessages_DOTA_UM_SelectPenaltyGold
-		if c.onCDOTAUserMsg_SelectPenaltyGold == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SelectPenaltyGold != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SelectPenaltyGold{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5653,13 +6764,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 564: // dota.EDotaUserMessages_DOTA_UM_RollDiceResult
-		if c.onCDOTAUserMsg_RollDiceResult == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_RollDiceResult != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_RollDiceResult{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5672,13 +6788,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 565: // dota.EDotaUserMessages_DOTA_UM_FlipCoinResult
-		if c.onCDOTAUserMsg_FlipCoinResult == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_FlipCoinResult != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_FlipCoinResult{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5691,13 +6812,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 568: // dota.EDotaUserMessages_DOTA_UM_SendRoshanSpectatorPhase
-		if c.onCDOTAUserMsg_SendRoshanSpectatorPhase == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SendRoshanSpectatorPhase != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SendRoshanSpectatorPhase{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5710,13 +6836,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 569: // dota.EDotaUserMessages_DOTA_UM_ChatWheelCooldown
-		if c.onCDOTAUserMsg_ChatWheelCooldown == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ChatWheelCooldown != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ChatWheelCooldown{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5729,13 +6860,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 570: // dota.EDotaUserMessages_DOTA_UM_DismissAllStatPopups
-		if c.onCDOTAUserMsg_DismissAllStatPopups == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DismissAllStatPopups != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DismissAllStatPopups{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5748,13 +6884,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 571: // dota.EDotaUserMessages_DOTA_UM_TE_DestroyProjectile
-		if c.onCDOTAUserMsg_TE_DestroyProjectile == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TE_DestroyProjectile != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TE_DestroyProjectile{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5767,13 +6908,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 572: // dota.EDotaUserMessages_DOTA_UM_HeroRelicProgress
-		if c.onCDOTAUserMsg_HeroRelicProgress == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HeroRelicProgress != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HeroRelicProgress{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5786,13 +6932,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 573: // dota.EDotaUserMessages_DOTA_UM_AbilityDraftRequestAbility
-		if c.onCDOTAUserMsg_AbilityDraftRequestAbility == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_AbilityDraftRequestAbility != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_AbilityDraftRequestAbility{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5805,13 +6956,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 574: // dota.EDotaUserMessages_DOTA_UM_ItemSold
-		if c.onCDOTAUserMsg_ItemSold == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ItemSold != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ItemSold{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5824,13 +6980,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 575: // dota.EDotaUserMessages_DOTA_UM_DamageReport
-		if c.onCDOTAUserMsg_DamageReport == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DamageReport != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DamageReport{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5843,13 +7004,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 576: // dota.EDotaUserMessages_DOTA_UM_SalutePlayer
-		if c.onCDOTAUserMsg_SalutePlayer == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_SalutePlayer != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_SalutePlayer{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5862,13 +7028,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 577: // dota.EDotaUserMessages_DOTA_UM_TipAlert
-		if c.onCDOTAUserMsg_TipAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TipAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TipAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5881,13 +7052,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 578: // dota.EDotaUserMessages_DOTA_UM_ReplaceQueryUnit
-		if c.onCDOTAUserMsg_ReplaceQueryUnit == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ReplaceQueryUnit != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ReplaceQueryUnit{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5900,13 +7076,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 579: // dota.EDotaUserMessages_DOTA_UM_EmptyTeleportAlert
-		if c.onCDOTAUserMsg_EmptyTeleportAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_EmptyTeleportAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_EmptyTeleportAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5919,13 +7100,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 580: // dota.EDotaUserMessages_DOTA_UM_MarsArenaOfBloodAttack
-		if c.onCDOTAUserMsg_MarsArenaOfBloodAttack == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MarsArenaOfBloodAttack != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MarsArenaOfBloodAttack{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5938,13 +7124,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 581: // dota.EDotaUserMessages_DOTA_UM_ESArcanaCombo
-		if c.onCDOTAUserMsg_ESArcanaCombo == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ESArcanaCombo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ESArcanaCombo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5957,13 +7148,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 582: // dota.EDotaUserMessages_DOTA_UM_ESArcanaComboSummary
-		if c.onCDOTAUserMsg_ESArcanaComboSummary == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ESArcanaComboSummary != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ESArcanaComboSummary{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5976,13 +7172,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 583: // dota.EDotaUserMessages_DOTA_UM_HighFiveLeftHanging
-		if c.onCDOTAUserMsg_HighFiveLeftHanging == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HighFiveLeftHanging != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HighFiveLeftHanging{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -5995,13 +7196,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 584: // dota.EDotaUserMessages_DOTA_UM_HighFiveCompleted
-		if c.onCDOTAUserMsg_HighFiveCompleted == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HighFiveCompleted != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HighFiveCompleted{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6014,13 +7220,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 585: // dota.EDotaUserMessages_DOTA_UM_ShovelUnearth
-		if c.onCDOTAUserMsg_ShovelUnearth == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ShovelUnearth != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ShovelUnearth{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6033,13 +7244,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 587: // dota.EDotaUserMessages_DOTA_UM_RadarAlert
-		if c.onCDOTAUserMsg_RadarAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_RadarAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_RadarAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6052,13 +7268,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 588: // dota.EDotaUserMessages_DOTA_UM_AllStarEvent
-		if c.onCDOTAUserMsg_AllStarEvent == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_AllStarEvent != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_AllStarEvent{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6071,13 +7292,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 589: // dota.EDotaUserMessages_DOTA_UM_TalentTreeAlert
-		if c.onCDOTAUserMsg_TalentTreeAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TalentTreeAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TalentTreeAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6090,13 +7316,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 590: // dota.EDotaUserMessages_DOTA_UM_QueuedOrderRemoved
-		if c.onCDOTAUserMsg_QueuedOrderRemoved == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_QueuedOrderRemoved != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_QueuedOrderRemoved{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6109,13 +7340,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 591: // dota.EDotaUserMessages_DOTA_UM_DebugChallenge
-		if c.onCDOTAUserMsg_DebugChallenge == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DebugChallenge != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DebugChallenge{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6128,13 +7364,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 592: // dota.EDotaUserMessages_DOTA_UM_OMArcanaCombo
-		if c.onCDOTAUserMsg_OMArcanaCombo == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_OMArcanaCombo != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_OMArcanaCombo{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6147,13 +7388,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 593: // dota.EDotaUserMessages_DOTA_UM_FoundNeutralItem
-		if c.onCDOTAUserMsg_FoundNeutralItem == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_FoundNeutralItem != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_FoundNeutralItem{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6166,13 +7412,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 594: // dota.EDotaUserMessages_DOTA_UM_OutpostCaptured
-		if c.onCDOTAUserMsg_OutpostCaptured == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_OutpostCaptured != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_OutpostCaptured{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6185,13 +7436,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 595: // dota.EDotaUserMessages_DOTA_UM_OutpostGrantedXP
-		if c.onCDOTAUserMsg_OutpostGrantedXP == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_OutpostGrantedXP != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_OutpostGrantedXP{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6204,13 +7460,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 596: // dota.EDotaUserMessages_DOTA_UM_MoveCameraToUnit
-		if c.onCDOTAUserMsg_MoveCameraToUnit == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MoveCameraToUnit != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MoveCameraToUnit{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6223,13 +7484,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 597: // dota.EDotaUserMessages_DOTA_UM_PauseMinigameData
-		if c.onCDOTAUserMsg_PauseMinigameData == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_PauseMinigameData != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_PauseMinigameData{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6242,13 +7508,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 598: // dota.EDotaUserMessages_DOTA_UM_VersusScene_PlayerBehavior
-		if c.onCDOTAUserMsg_VersusScene_PlayerBehavior == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_VersusScene_PlayerBehavior != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_VersusScene_PlayerBehavior{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6261,13 +7532,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 600: // dota.EDotaUserMessages_DOTA_UM_QoP_ArcanaSummary
-		if c.onCDOTAUserMsg_QoP_ArcanaSummary == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_QoP_ArcanaSummary != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_QoP_ArcanaSummary{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6280,13 +7556,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 601: // dota.EDotaUserMessages_DOTA_UM_HotPotato_Created
-		if c.onCDOTAUserMsg_HotPotato_Created == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HotPotato_Created != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HotPotato_Created{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6299,13 +7580,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 602: // dota.EDotaUserMessages_DOTA_UM_HotPotato_Exploded
-		if c.onCDOTAUserMsg_HotPotato_Exploded == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_HotPotato_Exploded != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_HotPotato_Exploded{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6318,13 +7604,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 603: // dota.EDotaUserMessages_DOTA_UM_WK_Arcana_Progress
-		if c.onCDOTAUserMsg_WK_Arcana_Progress == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_WK_Arcana_Progress != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_WK_Arcana_Progress{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6337,13 +7628,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 604: // dota.EDotaUserMessages_DOTA_UM_GuildChallenge_Progress
-		if c.onCDOTAUserMsg_GuildChallenge_Progress == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_GuildChallenge_Progress != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_GuildChallenge_Progress{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6356,13 +7652,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 605: // dota.EDotaUserMessages_DOTA_UM_WRArcanaProgress
-		if c.onCDOTAUserMsg_WRArcanaProgress == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_WRArcanaProgress != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_WRArcanaProgress{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6375,13 +7676,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 606: // dota.EDotaUserMessages_DOTA_UM_WRArcanaSummary
-		if c.onCDOTAUserMsg_WRArcanaSummary == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_WRArcanaSummary != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_WRArcanaSummary{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6394,13 +7700,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 607: // dota.EDotaUserMessages_DOTA_UM_EmptyItemSlotAlert
-		if c.onCDOTAUserMsg_EmptyItemSlotAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_EmptyItemSlotAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_EmptyItemSlotAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6413,13 +7724,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 608: // dota.EDotaUserMessages_DOTA_UM_AghsStatusAlert
-		if c.onCDOTAUserMsg_AghsStatusAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_AghsStatusAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_AghsStatusAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6432,13 +7748,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 609: // dota.EDotaUserMessages_DOTA_UM_PingConfirmation
-		if c.onCDOTAUserMsg_PingConfirmation == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_PingConfirmation != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_PingConfirmation{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6451,13 +7772,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 610: // dota.EDotaUserMessages_DOTA_UM_MutedPlayers
-		if c.onCDOTAUserMsg_MutedPlayers == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MutedPlayers != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MutedPlayers{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6470,13 +7796,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 611: // dota.EDotaUserMessages_DOTA_UM_ContextualTip
-		if c.onCDOTAUserMsg_ContextualTip == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ContextualTip != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ContextualTip{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6489,13 +7820,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 612: // dota.EDotaUserMessages_DOTA_UM_ChatMessage
-		if c.onCDOTAUserMsg_ChatMessage == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_ChatMessage != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_ChatMessage{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6508,13 +7844,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 613: // dota.EDotaUserMessages_DOTA_UM_NeutralCampAlert
-		if c.onCDOTAUserMsg_NeutralCampAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_NeutralCampAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_NeutralCampAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6527,13 +7868,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 614: // dota.EDotaUserMessages_DOTA_UM_RockPaperScissorsStarted
-		if c.onCDOTAUserMsg_RockPaperScissorsStarted == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_RockPaperScissorsStarted != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_RockPaperScissorsStarted{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6546,13 +7892,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 615: // dota.EDotaUserMessages_DOTA_UM_RockPaperScissorsFinished
-		if c.onCDOTAUserMsg_RockPaperScissorsFinished == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_RockPaperScissorsFinished != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_RockPaperScissorsFinished{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6565,13 +7916,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 616: // dota.EDotaUserMessages_DOTA_UM_DuelOpponentKilled
-		if c.onCDOTAUserMsg_DuelOpponentKilled == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DuelOpponentKilled != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DuelOpponentKilled{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6584,13 +7940,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 617: // dota.EDotaUserMessages_DOTA_UM_DuelAccepted
-		if c.onCDOTAUserMsg_DuelAccepted == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DuelAccepted != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DuelAccepted{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6603,13 +7964,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 618: // dota.EDotaUserMessages_DOTA_UM_DuelRequested
-		if c.onCDOTAUserMsg_DuelRequested == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_DuelRequested != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_DuelRequested{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6622,13 +7988,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 619: // dota.EDotaUserMessages_DOTA_UM_MuertaReleaseEvent_AssignedTargetKilled
-		if c.onCDOTAUserMsg_MuertaReleaseEvent_AssignedTargetKilled == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MuertaReleaseEvent_AssignedTargetKilled != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MuertaReleaseEvent_AssignedTargetKilled{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6641,13 +8012,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 620: // dota.EDotaUserMessages_DOTA_UM_PlayerDraftSuggestPick
-		if c.onCDOTAUserMsg_PlayerDraftSuggestPick == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_PlayerDraftSuggestPick != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_PlayerDraftSuggestPick{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6660,13 +8036,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 621: // dota.EDotaUserMessages_DOTA_UM_PlayerDraftPick
-		if c.onCDOTAUserMsg_PlayerDraftPick == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_PlayerDraftPick != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_PlayerDraftPick{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6679,13 +8060,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 622: // dota.EDotaUserMessages_DOTA_UM_UpdateLinearProjectileCPData
-		if c.onCDOTAUserMsg_UpdateLinearProjectileCPData == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_UpdateLinearProjectileCPData != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_UpdateLinearProjectileCPData{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6698,13 +8084,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 623: // dota.EDotaUserMessages_DOTA_UM_GiftPlayer
-		if c.onCDOTAUserMsg_GiftPlayer == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_GiftPlayer != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_GiftPlayer{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6717,13 +8108,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 624: // dota.EDotaUserMessages_DOTA_UM_FacetPing
-		if c.onCDOTAUserMsg_FacetPing == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_FacetPing != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_FacetPing{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6736,13 +8132,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 625: // dota.EDotaUserMessages_DOTA_UM_InnatePing
-		if c.onCDOTAUserMsg_InnatePing == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_InnatePing != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_InnatePing{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6755,13 +8156,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 626: // dota.EDotaUserMessages_DOTA_UM_RoshanTimer
-		if c.onCDOTAUserMsg_RoshanTimer == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_RoshanTimer != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_RoshanTimer{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6774,13 +8180,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 627: // dota.EDotaUserMessages_DOTA_UM_NeutralCraftAvailable
-		if c.onCDOTAUserMsg_NeutralCraftAvailable == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_NeutralCraftAvailable != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_NeutralCraftAvailable{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6793,13 +8204,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 628: // dota.EDotaUserMessages_DOTA_UM_TimerAlert
-		if c.onCDOTAUserMsg_TimerAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_TimerAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_TimerAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6812,13 +8228,18 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 		return nil
 
 	case 629: // dota.EDotaUserMessages_DOTA_UM_MadstoneAlert
-		if c.onCDOTAUserMsg_MadstoneAlert == nil {
+		shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.onCDOTAUserMsg_MadstoneAlert != nil
+		if !shouldUnmarshal {
 			return nil
 		}
 
 		msg := &dota.CDOTAUserMsg_MadstoneAlert{}
 		c.pb.SetBuf(buf)
 		if err := c.pb.Unmarshal(msg); err != nil {
+			return callAnyHandlers(nil)
+		}
+
+		if err := callAnyHandlers(msg); err != nil {
 			return err
 		}
 
@@ -6830,6 +8251,15 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
 
 		return nil
 
+	}
+
+	// Unknown type - call any- handlers with nil message if they exist
+	if len(c.onAnyPacketMessage) > 0 {
+		for _, fn := range c.onAnyPacketMessage {
+			if err := fn(t, nil, ""); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

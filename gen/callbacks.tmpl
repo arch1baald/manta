@@ -1,6 +1,8 @@
 package manta
 
 import (
+  "reflect"
+
   "github.com/arch1baald/manta/dota"
   "github.com/golang/protobuf/proto"
 )
@@ -10,6 +12,10 @@ type Callbacks struct {
 {{ range .DemoTypes }}  on{{ .Callback }} []func(*dota.{{ .TypeName }}) error
 {{ end }}{{ range .PacketTypes }}  on{{ .Callback }} []func(*dota.{{ .TypeName }}) error
 {{ end }}
+  // Universal hooks for any demo/packet messages
+  onAnyDemoMessage   []func(typeId int32, msg proto.Message, typeName string) error
+  onAnyPacketMessage []func(typeId int32, msg proto.Message, typeName string) error
+
   pb *proto.Buffer
 }
 
@@ -17,6 +23,18 @@ func newCallbacks() *Callbacks {
   return &Callbacks{
     pb: &proto.Buffer{},
   }
+}
+
+// OnAnyDemoMessage registers a callback that will be called for any demo message type.
+// The callback receives typeId, decoded proto.Message (or nil if unmarshal failed), and type name.
+func(c *Callbacks) OnAnyDemoMessage(fn func(typeId int32, msg proto.Message, typeName string) error) {
+  c.onAnyDemoMessage = append(c.onAnyDemoMessage, fn)
+}
+
+// OnAnyPacketMessage registers a callback that will be called for any packet message type.
+// The callback receives typeId, decoded proto.Message (or nil if unmarshal failed), and type name.
+func(c *Callbacks) OnAnyPacketMessage(fn func(typeId int32, msg proto.Message, typeName string) error) {
+  c.onAnyPacketMessage = append(c.onAnyPacketMessage, fn)
 }
 
 {{ range .DemoTypes }}// On{{ .Callback }} registers a callback {{ .EnumName }}
@@ -29,16 +47,44 @@ func(c *Callbacks) On{{ .Callback }}(fn func(*dota.{{ .TypeName }}) error) {
 }
 {{ end }}
 
+// getProtoTypeName extracts the type name from a proto.Message using reflection
+func getProtoTypeName(msg proto.Message) string {
+  if msg == nil {
+    return ""
+  }
+  t := reflect.TypeOf(msg)
+  if t.Kind() == reflect.Ptr {
+    t = t.Elem()
+  }
+  return t.Name()
+}
+
 func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
+  // Helper to call any- handlers
+  callAnyHandlers := func(msg proto.Message) error {
+    typeName := getProtoTypeName(msg)
+    for _, fn := range c.onAnyDemoMessage {
+      if err := fn(t, msg, typeName); err != nil {
+        return err
+      }
+    }
+    return nil
+  }
+
   switch t {
 {{ range .DemoTypes }}  case {{ .Id }}: // dota.{{ .EnumName }}
-    if c.on{{ .Callback }} == nil {
+    shouldUnmarshal := len(c.onAnyDemoMessage) > 0 || c.on{{ .Callback }} != nil
+    if !shouldUnmarshal {
       return nil
     }
 
     msg := &dota.{{ .TypeName }}{}
     c.pb.SetBuf(buf)
     if err := c.pb.Unmarshal(msg); err != nil {
+      return callAnyHandlers(nil)
+    }
+
+    if err := callAnyHandlers(msg); err != nil {
       return err
     }
 
@@ -51,6 +97,15 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
     return nil
 
 {{ end }}
+  }
+
+  // Unknown type - call any- handlers with nil message if they exist
+  if len(c.onAnyDemoMessage) > 0 {
+    for _, fn := range c.onAnyDemoMessage {
+      if err := fn(t, nil, ""); err != nil {
+        return err
+      }
+    }
   }
 
   if v(1) {
@@ -61,15 +116,31 @@ func (c *Callbacks) callByDemoType(t int32, buf []byte) error {
 }
 
 func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
+  // Helper to call any- handlers
+  callAnyHandlers := func(msg proto.Message) error {
+    typeName := getProtoTypeName(msg)
+    for _, fn := range c.onAnyPacketMessage {
+      if err := fn(t, msg, typeName); err != nil {
+        return err
+      }
+    }
+    return nil
+  }
+
   switch t {
 {{ range .PacketTypes }}  case {{ .Id }}: // dota.{{ .EnumName }}
-    if c.on{{ .Callback }} == nil {
+    shouldUnmarshal := len(c.onAnyPacketMessage) > 0 || c.on{{ .Callback }} != nil
+    if !shouldUnmarshal {
       return nil
     }
 
     msg := &dota.{{ .TypeName }}{}
     c.pb.SetBuf(buf)
     if err := c.pb.Unmarshal(msg); err != nil {
+      return callAnyHandlers(nil)
+    }
+
+    if err := callAnyHandlers(msg); err != nil {
       return err
     }
 
@@ -82,6 +153,15 @@ func (c *Callbacks) callByPacketType(t int32, buf []byte) error {
     return nil
 
 {{ end }}
+  }
+
+  // Unknown type - call any- handlers with nil message if they exist
+  if len(c.onAnyPacketMessage) > 0 {
+    for _, fn := range c.onAnyPacketMessage {
+      if err := fn(t, nil, ""); err != nil {
+        return err
+      }
+    }
   }
 
   return nil
